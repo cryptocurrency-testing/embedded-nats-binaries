@@ -3,11 +3,10 @@ on:
     tags:
      - '*'
 
-environment: build-and-release
-
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: build-and-release
     steps:
      - uses: actions/checkout@v2
      - run: ./gradlew bintrayUpload
