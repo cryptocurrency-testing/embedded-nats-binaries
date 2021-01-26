@@ -9,6 +9,6 @@ jobs:
     environment: build-and-release
     steps:
      - uses: actions/checkout@v2
-     - run: ./gradlew bintrayUpload
+     - run: gradle bintrayUpload
 
 
