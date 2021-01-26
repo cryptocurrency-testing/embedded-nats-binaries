@@ -1,0 +1,15 @@
+on:
+  push:
+    tags:
+     - '*'
+
+environment: build-and-release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+     - uses: actions/checkout@v2
+     - run: ./gradlew bintrayUpload
+
+
