@@ -1,0 +1,251 @@
+
+buildscript {
+    repositories {
+        jcenter()
+    }
+
+    dependencies {
+        classpath "com.jfrog.bintray.gradle:gradle-bintray-plugin:1+"
+    }
+}
+
+plugins {
+    id "de.undercouch.download" version "3.4.3"
+}
+
+def platformReleases = [
+        [
+                "name": "mac",
+                "platform": "darwin-amd64",
+        ],
+        [
+                "name": "linux",
+                "platform": "linux-amd64",
+        ],
+]
+def natsVersion = "2.1.9"
+
+allprojects {
+    apply plugin: 'java'
+    //apply plugin: 'maven'
+    apply plugin: 'maven-publish'
+    apply plugin: 'com.jfrog.bintray'
+
+    group 'org.cryptocurrency-testing'
+    version = "$natsVersion"
+    archivesBaseName = "embedded-nats-binaries"
+    sourceCompatibility = 1.6
+
+    repositories {
+        jcenter()
+    }
+
+    configurations {
+        bundles
+    }
+}
+
+project(':nats-artifacts') {
+    platformReleases.each { platform ->
+        task "download${platform.name}Bundle"(group: "build (${platform.name})", type: Download) {
+            inputs.property("natsVersion", natsVersion)
+            inputs.property("platformName", platform.name)
+            outputs.file(project.file("nats-server-v${natsVersion}-${platform.platform}.zip"))
+            src([
+                    "https://github.com/nats-io/nats-server/releases/download/v${natsVersion}/nats-server-v${natsVersion}-${platform.platform}.zip"
+            ])
+            overwrite true
+            dest project.file("./")
+        }
+        task "untar${platform.name}Bundle"(group: "build (${platform.name})", type: Copy) {
+            inputs.property("natsVersion", natsVersion)
+            inputs.property("platformName", platform.name)
+            inputs.file(project.file("nats-server-v${natsVersion}-${platform.platform}.zip"))
+
+            dependsOn "download${platform.name}Bundle"
+            from (zipTree(project.file("nats-server-v${natsVersion}-${platform.platform}.zip"))) {
+                include "nats-server-v${natsVersion}-${platform.platform}/"
+                eachFile { fcd ->
+                    fcd.relativePath = new RelativePath(true, fcd.relativePath.segments.drop(1))  // (2)
+                }
+                includeEmptyDirs = false  // (3)
+            }
+            into project.file("${platform.name}/${platform.platform}/").canonicalPath
+        }
+        task "${platform.name}Jar"(group: "build (${platform.name})", type: Jar) {
+            dependsOn "untar${platform.name}Bundle"
+            from project.file("./${platform.name}/")
+            //tasks.getByName("untar${platform.name}Bundle")
+            appendix = "${platform.platform}"
+        }
+
+        artifacts.add('bundles', tasks.getByName("${platform.name}Jar"))
+    }
+}
+
+subprojects {
+    task sourcesJar(type: Jar, dependsOn: classes) {
+        from sourceSets.main.allSource
+        classifier = 'sources'
+    }
+
+    task javadocJar(type: Jar, dependsOn: javadoc) {
+        from javadoc.destinationDir
+        classifier = 'javadoc'
+    }
+
+    publishing {
+        publications {
+            configurations.bundles.artifacts.all { archive ->
+                def publicationName = archive.archiveTask.name - 'Jar'
+                "$publicationName"(MavenPublication) {
+                    artifactId "${archive.name}"
+                    configurePom(pom, artifactId, 'A bundle containing the NATS server')
+
+                    artifact archive
+                    artifact sourcesJar
+                    artifact javadocJar
+                }
+            }
+        }
+    }
+}
+
+publishing {
+    publications {
+        bom(MavenPublication) {
+            artifactId 'embedded-nats-binaries-bom'
+            configurePom(pom, artifactId, 'Bill of Materials')
+
+            pom.withXml {
+                def root = asNode()
+                root.children().last() + {
+                    resolveStrategy = Closure.DELEGATE_FIRST
+
+                    dependencyManagement {
+                        dependencies {
+                            project.subprojects.collectMany { it.configurations.bundles.artifacts }
+
+                                    .each { archive ->
+                                        dependency {
+                                            groupId "${project.group}"
+                                            artifactId "${archive.name}"
+                                            version "${project.version}"
+
+                                            if (!archive.name.contains('amd64') || archive.name.contains('lite')) {
+                                                optional 'true'
+                                            }
+                                        }
+                                    }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+allprojects {
+
+    bintray {
+        user = project.hasProperty('bintray.user') ? project.property('bintray.user') : System.getenv('BINTRAY_USER')
+        key = project.hasProperty('bintray.apiKey') ? project.property('bintray.apiKey') : System.getenv('BINTRAY_API_KEY')
+        publications = project.publishing.publications.findAll().collect { it.name }
+        pkg {
+            repo = 'embedded-nats-binaries'
+            userOrg = 'cryptocurrency-testing'
+            name = 'embedded-nats-binaries'
+            desc = 'Embedded NATS binaries for tests'
+            licenses = ['MIT']
+            vcsUrl = 'https://github.com/cryptocurrency-testing/embedded-nats-binaries.git'
+            version {
+                name = project.version
+                gpg {
+                    sign = true //Determines whether to GPG sign the files. The default is false
+                    passphrase = project.hasProperty('bintray.pgpPassphrase') ? project.property('bintray.pgpPassphrase') : System.getenv('BINTRAY_PGP_PASSPHRASE')
+                }
+            }
+        }
+    }
+
+    task install(group: 'publishing') {}
+
+    configurations.bundles.artifacts.all { archive ->
+        def publicationName = archive.archiveTask.name - 'Jar'
+
+        jar.dependsOn "${archive.archiveTask.name}"
+        //test.dependsOn "test${archive.archiveTask.name.capitalize()}"
+        install.dependsOn "publish${publicationName.capitalize()}PublicationToMavenLocal"
+    }
+
+    task uploadArchives(group: 'publishing') {
+        dependsOn bintrayUpload
+    }
+
+    tasks.whenTaskAdded { task ->
+        if (task.name == 'publishBomPublicationToMavenLocal') {
+            install.dependsOn task
+        }
+    }
+}
+
+def configurePom(pom, artifact, desc) {
+    pom.withXml {
+        def root = asNode()
+
+        root.children().last() + {
+            resolveStrategy = Closure.DELEGATE_FIRST
+
+            name artifact
+            description desc
+            url 'https://github.com/cryptocurrency-testing/embedded-nats-binaries'
+
+            scm {
+                connection 'scm:git:git://github.com/cryptocurrency-testing/embedded-nats-binaries.git'
+                developerConnection 'scm:git:ssh://github.com:cryptocurrency-testing/embedded-nats-binaries.git'
+                url 'https://github.com/cryptocurrency-testing/embedded-nats-binaries/tree/master'
+            }
+
+            licenses {
+                license {
+                    name 'The MIT Licence'
+                    url 'https://opensource.org/licenses/MIT'
+                }
+            }
+
+            developers {
+                developer {
+                    name 'James Hilliard'
+                    email 'james.hilliard1@gmail.com'
+                }
+                developer {
+                    name 'Thomas Kerin'
+                    email 'me@thomaskerin.io'
+                }
+            }
+        }
+    }
+}
+
+class LazyExec extends AbstractExecTask<LazyExec> {
+    LazyExec() {
+        super(LazyExec.class)
+    }
+
+    @Override
+    LazyExec commandLine(Object... arguments) {
+        return super.commandLine(arguments.collect { argument ->
+            if (argument instanceof Closure) {
+                Closure closure = (Closure) argument;
+                return new Object() {
+                    @Override
+                    String toString() {
+                        return closure()
+                    }
+                }
+            } else {
+                return argument
+            }
+        }) as LazyExec
+    }
+}
