@@ -10,9 +10,6 @@ jobs:
     steps:
      - name: Checkout code
        uses: actions/checkout@v2
-     - run: echo $BINTRAY_USER
-       env:
-         BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
      - run: gradle bintrayUpload
        env:
          BINTRAY_USER: ${{ secrets.BINTRAY_USER }}
