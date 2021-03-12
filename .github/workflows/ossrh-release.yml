@@ -1,0 +1,16 @@
+on:
+  push:
+    tags:
+     - '*'
+
+jobs:
+  publish-ossrh:
+    runs-on: ubuntu-latest
+    environment: build-and-release-ossrh
+    steps:
+     - name: Checkout code
+       uses: actions/checkout@v2
+     - run: gradle publish
+       env:
+         MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+         MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}

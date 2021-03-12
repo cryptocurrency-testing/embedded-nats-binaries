@@ -3,10 +3,6 @@ buildscript {
     repositories {
         jcenter()
     }
-
-    dependencies {
-        classpath "com.jfrog.bintray.gradle:gradle-bintray-plugin:1+"
-    }
 }
 
 plugins {
@@ -27,11 +23,10 @@ def natsVersion = "2.1.9"
 
 allprojects {
     apply plugin: 'java'
-    //apply plugin: 'maven'
     apply plugin: 'maven-publish'
-    apply plugin: 'com.jfrog.bintray'
+    apply plugin: 'signing'
 
-    group 'org.cryptocurrency-testing'
+    group 'com.github.cryptocurrency-testing'
     version = "$natsVersion"
     archivesBaseName = "embedded-nats-binaries"
     sourceCompatibility = 1.6
@@ -84,6 +79,9 @@ project(':nats-artifacts') {
 }
 
 subprojects {
+    apply plugin: "maven-publish"
+    apply plugin: "signing"
+
     task sourcesJar(type: Jar, dependsOn: classes) {
         from sourceSets.main.allSource
         classifier = 'sources'
@@ -95,6 +93,17 @@ subprojects {
     }
 
     publishing {
+        repositories {
+            maven {
+                name = "OSSRH"
+                url = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+
+                credentials {
+                    username = project.hasProperty('maven.username') ? project.property('maven.username') : System.getenv('MAVEN_USERNAME')
+                    password = project.hasProperty('maven.password') ? project.property('maven.password') : System.getenv('MAVEN_PASSWORD')
+                }
+            }
+        }
         publications {
             configurations.bundles.artifacts.all { archive ->
                 def publicationName = archive.archiveTask.name - 'Jar'
@@ -108,10 +117,24 @@ subprojects {
                 }
             }
         }
+        signing {
+            sign publishing.publications
+        }
     }
 }
 
 publishing {
+    repositories {
+        maven {
+            name = "OSSRH"
+            url = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+
+            credentials {
+                username = project.hasProperty('maven.username') ? project.property('maven.username') : System.getenv('MAVEN_USERNAME')
+                password = project.hasProperty('maven.password') ? project.property('maven.password') : System.getenv('MAVEN_PASSWORD')
+            }
+        }
+    }
     publications {
         bom(MavenPublication) {
             artifactId 'embedded-nats-binaries-bom'
@@ -144,31 +167,10 @@ publishing {
         }
     }
 }
-
+signing {
+    sign publishing.publications
+}
 allprojects {
-
-    bintray {
-        user = project.hasProperty('bintray.user') ? project.property('bintray.user') : System.getenv('BINTRAY_USER')
-        key = project.hasProperty('bintray.apiKey') ? project.property('bintray.apiKey') : System.getenv('BINTRAY_API_KEY')
-        publications = project.publishing.publications.findAll().collect { it.name }
-        publish = true
-        pkg {
-            repo = 'embedded-nats-binaries'
-            userOrg = 'cryptocurrency-testing'
-            name = 'embedded-nats-binaries'
-            desc = 'Embedded NATS binaries for tests'
-            licenses = ['MIT']
-            vcsUrl = 'https://github.com/cryptocurrency-testing/embedded-nats-binaries.git'
-            version {
-                name = project.version
-                gpg {
-                    sign = true //Determines whether to GPG sign the files. The default is false
-                    passphrase = project.hasProperty('bintray.pgpPassphrase') ? project.property('bintray.pgpPassphrase') : System.getenv('BINTRAY_PGP_PASSPHRASE')
-                }
-            }
-        }
-    }
-
     task install(group: 'publishing') {}
 
     configurations.bundles.artifacts.all { archive ->
@@ -179,9 +181,9 @@ allprojects {
         install.dependsOn "publish${publicationName.capitalize()}PublicationToMavenLocal"
     }
 
-    task uploadArchives(group: 'publishing') {
-        dependsOn bintrayUpload
-    }
+//    task uploadArchives(group: 'publishing') {
+//        dependsOn bintrayUpload
+//    }
 
     tasks.whenTaskAdded { task ->
         if (task.name == 'publishBomPublicationToMavenLocal') {
