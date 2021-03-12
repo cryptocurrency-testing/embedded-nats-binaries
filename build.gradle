@@ -31,7 +31,7 @@ allprojects {
     apply plugin: 'maven-publish'
     apply plugin: 'com.jfrog.bintray'
 
-    group 'org.cryptocurrency-testing.embedded-nats-binaries'
+    group 'org.cryptocurrency-testing'
     version = "$natsVersion"
     archivesBaseName = "embedded-nats-binaries"
     sourceCompatibility = 1.6
